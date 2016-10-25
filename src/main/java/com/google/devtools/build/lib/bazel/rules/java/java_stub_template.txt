@@ -235,10 +235,56 @@ ARGS=(
   %java_start_class%
   "${ARGS[@]}")
 
+# Windows per-arg limit MAX_ARG_STRLEN == 8k!
+if is_windows && (("${#CLASSPATH}" > 7000)); then
+  # Create a temp directory to create the class path manifest file and jar.
+  MANIFEST_TEMP=`cygpath -m $(mktemp -d)`
+  trap "rm -fr \"$MANIFEST_TEMP\"" EXIT
+
+  # Build class path as one single string separated by spaces
+  MANIFEST_CLASSPATH=""
+  FIRST_JAR=""
+  IFS=';'
+  for x in $CLASSPATH
+  do
+    if [ -z $FIRST_JAR ]; then
+      FIRST_JAR="$x"
+    else
+      #TODO: Escaped SPACE characters
+      MANIFEST_CLASSPATH="$MANIFEST_CLASSPATH file:/$x"
+    fi
+  done
+  unset IFS
+  
+  # Create manifest file
+  MANIFEST_FILE=$MANIFEST_TEMP/manifest
+
+  echo "Manifest-Version: 1.0" >$MANIFEST_FILE
+  CLASSPATH_LINE="Class-Path:$MANIFEST_CLASSPATH"
+  for i in `seq 0 71 ${#CLASSPATH_LINE}`; do
+    PREFIX=" "
+    if (($i == 0)); then
+      PREFIX=""
+    fi
+    echo "$PREFIX${CLASSPATH_LINE:$i:71}" >>$MANIFEST_FILE
+  done
+  echo "Created-By: Bazel" >>$MANIFEST_FILE
+
+  # Create classpath JAR file
+  MANIFEST_JAR_FILE=$MANIFEST_TEMP/classpath.jar
+  JARBIN=${JARBIN:-$(rlocation local_jdk/bin/jar.exe)}
+  #echo $JARBIN cvfm $MANIFEST_JAR_FILE $MANIFEST_FILE
+  $JARBIN cvfm $MANIFEST_JAR_FILE $MANIFEST_FILE >/dev/null
+
+  # Execute JAVA command
+  echo $JAVABIN -classpath "$FIRST_JAR;$MANIFEST_JAR_FILE" "${ARGS[@]}"
+  $JAVABIN -classpath "$FIRST_JAR;$MANIFEST_JAR_FILE" "${ARGS[@]}"
 # Linux per-arg limit MAX_ARG_STRLEN == 128k!
-if (("${#CLASSPATH}" > 120000)); then
+elif (("${#CLASSPATH}" > 120000)); then
+  #echo exec $JAVABIN -classpath @<(echo $CLASSPATH) "${ARGS[@]}"
   set +o posix  # Enable process substitution.
   exec $JAVABIN -classpath @<(echo $CLASSPATH) "${ARGS[@]}"
 else
+  #echo exec $JAVABIN -classpath $CLASSPATH "${ARGS[@]}"
   exec $JAVABIN -classpath $CLASSPATH "${ARGS[@]}"
 fi
