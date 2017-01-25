@@ -26,6 +26,7 @@
 @set launcher=%~dp0%~n0
 
 @rem sh_path=$($cygpath_path -m $launcher)
-@for /f %%i in ('%cygpath_path% -m %launcher%') do @set sh_path=%%i
+@set sh_path=%launcher:\=/%
+@REM for /f %%i in ('%cygpath_path% -m %launcher%') do @set sh_path=%%i
 
 @call %bash_path% -c "%sh_path% %*"
